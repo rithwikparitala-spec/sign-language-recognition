@@ -24,7 +24,6 @@ labels = np.load(LABELS_PATH, allow_pickle=True).tolist()
 model.predict(np.zeros((1, SEQ_LENGTH, 1662), dtype=np.float32), verbose=0)
 print("Model ready.")
 
-# load word map
 word_map = {}
 with open(WORDS_PATH, "r", encoding="utf-8") as f:
     for line in f:
@@ -121,7 +120,6 @@ def camera_thread():
             else:
                 no_hand_count = 0
 
-            # sign complete when hand gone
             if sign_locked and no_hand_count >= NO_HAND_LIMIT:
                 with state_lock:
                     if locked_word and (
@@ -136,17 +134,13 @@ def camera_thread():
                 frame_buffer.clear()
                 pred_buffer.clear()
 
-            # only collect keypoints when hand present
             if hand_detected:
                 kp = extract_keypoints(results)
                 frame_buffer.append(kp)
             else:
-                # clear buffer when no hand — prevents stale frames mixing in
                 if no_hand_count > 5:
                     frame_buffer.clear()
                     pred_buffer.clear()
-
-            # predict when buffer full and hand present
             if hand_detected and len(frame_buffer) == SEQ_LENGTH:
                 seq   = np.expand_dims(np.array(frame_buffer), axis=0)
                 probs = model.predict(seq, verbose=0)[0]
@@ -171,10 +165,8 @@ def camera_thread():
                         sign_locked  = True
                         print(f"LOCKED: {locked_label} → {locked_word}")
 
-            # draw overlay on frame
             h, w = img.shape[:2]
 
-            # top banner
             cv2.rectangle(img, (0, 0), (w, 70), (20, 20, 40), -1)
 
             if sign_locked and locked_word:
@@ -185,16 +177,10 @@ def camera_thread():
                 cv2.putText(img, "Waiting for sign...",
                             (15, 48), cv2.FONT_HERSHEY_SIMPLEX, 1.0,
                             (150, 150, 150), 2, cv2.LINE_AA)
-
-            # buffer progress bar
             buf_w = int((len(frame_buffer) / SEQ_LENGTH) * w)
             cv2.rectangle(img, (0, h - 10), (buf_w, h), (0, 180, 255), -1)
-
-            # hand indicator dot
             dot_color = (0, 255, 0) if hand_detected else (0, 0, 220)
             cv2.circle(img, (w - 30, 35), 12, dot_color, -1)
-
-            # sentence at bottom
             with state_lock:
                 sentence = state["sentence"][:]
             sentence_text = " ".join(sentence)
@@ -203,16 +189,12 @@ def camera_thread():
                 cv2.putText(img, sentence_text,
                             (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                             (0, 255, 100), 2, cv2.LINE_AA)
-
-            # update state
             with state_lock:
                 state["current_word"] = locked_word if sign_locked else ""
                 state["current_conf"] = locked_conf
                 state["hand"]         = hand_detected
                 state["locked"]       = sign_locked
                 state["buf_len"]      = len(frame_buffer)
-
-            # encode frame
             _, buffer = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
             with frame_lock:
                 output_frame = buffer.tobytes()
